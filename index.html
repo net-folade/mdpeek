@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mdpeek</title>
+  </head>
+  <body>
+    <div id="app" data-sidebar="hidden">
+      <aside id="sidebar">
+        <div class="sidebar-head" data-tauri-drag-region>
+          <span id="folder-name" class="folder-name"></span>
+        </div>
+        <input id="filter" class="filter" type="text" spellcheck="false" placeholder="filter…" />
+        <nav id="tree" class="tree"></nav>
+      </aside>
+
+      <main id="reader">
+        <header id="bar" data-tauri-drag-region>
+          <span id="crumb" class="crumb" data-tauri-drag-region></span>
+          <span class="bar-actions">
+            <button id="btn-file" type="button" title="Open file — ⌘O">file</button>
+            <button id="btn-folder" type="button" title="Open folder — ⇧⌘O">folder</button>
+          </span>
+        </header>
+
+        <article id="content" class="markdown" tabindex="-1"></article>
+
+        <div id="empty" class="empty">
+          <pre class="logo">
+   ┌─────────┐
+   │  mdpeek │
+   └─────────┘
+</pre>
+          <ul class="keys">
+            <li><kbd>⌘O</kbd> open a file</li>
+            <li><kbd>⇧⌘O</kbd> open a folder</li>
+            <li><kbd>⌘K</kbd> jump to a file</li>
+            <li><kbd>⌘F</kbd> find in document</li>
+          </ul>
+          <p class="hint">or drop a <code>.md</code> file anywhere</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- Quick switcher / cross-file search -->
+    <div id="palette" class="overlay" hidden>
+      <div class="palette-box">
+        <input id="palette-input" type="text" spellcheck="false" placeholder="jump to file…  (prefix with &gt; to search contents)" />
+        <ul id="palette-list" class="palette-list"></ul>
+      </div>
+    </div>
+
+    <!-- In-document find -->
+    <div id="find" class="find" hidden>
+      <input id="find-input" type="text" spellcheck="false" placeholder="find" />
+      <span id="find-count" class="find-count"></span>
+      <button id="find-prev" type="button" title="Previous — ⇧⏎">↑</button>
+      <button id="find-next" type="button" title="Next — ⏎">↓</button>
+      <button id="find-close" type="button" title="Close — Esc">✕</button>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
