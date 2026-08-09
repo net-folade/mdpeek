@@ -1,10 +1,10 @@
 import './style.css';
 
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import { toSafeHtml, enhance, resetThemedRenderers } from './render';
 import {
@@ -81,6 +81,7 @@ async function openFile(path: string, opts: { keepScroll?: boolean } = {}): Prom
 
   closeFind();
   content.innerHTML = toSafeHtml(source);
+  resolveAssets(dirname(path));
   content.scrollTop = opts.keepScroll && isSameFile ? scrollTop : 0;
 
   emptyState.hidden = true;
@@ -94,6 +95,25 @@ async function openFile(path: string, opts: { keepScroll?: boolean } = {}): Prom
   });
 
   await enhance(content);
+}
+
+/**
+ * Point `<img src>` at something the webview can actually fetch.
+ *
+ * A relative `![](diagram.png)` would otherwise resolve against the frontend
+ * origin (tauri://localhost) and 404 — every screenshot in every README shows as
+ * a broken image. convertFileSrc maps an absolute path onto the asset protocol;
+ * read_md has already added the document's directory to that protocol's scope.
+ */
+function resolveAssets(baseDir: string): void {
+  for (const img of content.querySelectorAll<HTMLImageElement>('img')) {
+    const src = img.getAttribute('src');
+    // Absolute URLs and inline data are already loadable; leave them be.
+    if (!src || /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//')) continue;
+    img.src = convertFileSrc(
+      src.startsWith('/') ? decodeURIComponent(src) : resolveRelative(baseDir, src),
+    );
+  }
 }
 
 async function openFolder(path: string): Promise<void> {
@@ -174,16 +194,28 @@ content.addEventListener('click', (ev) => {
     return;
   }
 
-  if (/^https?:\/\//i.test(href)) {
+  // Anything with a scheme — http(s), mailto:, and the rest — is the system's job.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
     void openUrl(href).catch(() => toast('could not open link'));
     return;
   }
 
-  // Relative path — resolve against the current file and open it in place.
-  if (/\.(md|markdown|mdx|mdown)(#.*)?$/i.test(href) && state.filePath) {
-    const [rel] = href.split('#');
-    void openFile(resolveRelative(dirname(state.filePath), rel));
+  // Relative path — resolve against the current file.
+  if (!state.filePath) return;
+  const [rel] = href.split('#');
+  if (!rel) return;
+  const target = resolveRelative(dirname(state.filePath), rel);
+
+  // Markdown opens in place; that is the whole point of the app.
+  if (isMd(target)) {
+    void openFile(target);
+    return;
   }
+
+  // Any other local file gets revealed in Finder rather than launched. Handing an
+  // arbitrary path from an untrusted document to the system opener would let a
+  // document choose what executes; revealing only ever opens Finder.
+  void revealItemInDir(target).catch(() => toast(`can't open ${basename(target)}`));
 });
 
 function resolveRelative(base: string, rel: string): string {
@@ -230,7 +262,11 @@ function runFind(query: string): void {
     acceptNode(node) {
       if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
       // Leave rendered math and diagrams alone — splitting their nodes breaks them.
-      const parent = (node.parentElement as HTMLElement | null)?.closest('.katex, svg, .mermaid-block');
+      // .copy-btn is chrome, not document text: without it, searching "copy" lights
+      // up the button on every code block.
+      const parent = (node.parentElement as HTMLElement | null)?.closest(
+        '.katex, svg, .mermaid-block, .copy-btn',
+      );
       return parent ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
     },
   });

@@ -138,10 +138,19 @@ marked.use({
   },
 });
 
+/* YAML frontmatter is metadata, not prose, and Markdown has no notion of it —
+ * left in place, `---\ntitle: Notes\n---` parses as a thematic break followed by
+ * a *setext* heading, so `title: Notes` becomes an <h1>. That is the first thing
+ * you see in most Obsidian, Jekyll and Hugo files. Delimiters are matched the way
+ * every other frontmatter reader matches them: `---` on line one, next `---` closes.
+ * Stripping happens here rather than at read time so state.fileSource keeps the
+ * original line numbers that search hits are reported against. */
+const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+
 /** Parse + sanitize. The returned string is safe to assign to innerHTML. */
 export function toSafeHtml(md: string): string {
   slugCounts.clear();
-  const raw = marked.parse(md, { async: false });
+  const raw = marked.parse(md.replace(FRONTMATTER, ''), { async: false });
   return DOMPurify.sanitize(raw, {
     USE_PROFILES: { html: true, svg: false, mathMl: false },
     ADD_ATTR: ['id'],

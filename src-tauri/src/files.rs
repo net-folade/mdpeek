@@ -8,6 +8,7 @@
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
 const MD_EXTS: [&str; 4] = ["md", "markdown", "mdx", "mdown"];
 const SKIP_DIRS: [&str; 9] = [
@@ -53,8 +54,18 @@ pub struct Hit {
     pub text: String,
 }
 
+/// Let the webview load images sitting next to a document.
+///
+/// The asset protocol starts with an empty scope and is widened only here, one
+/// directory at a time, as documents are actually opened — rather than declaring
+/// a broad static scope in tauri.conf.json and hoping. Failure is not fatal: the
+/// document still renders, its images just stay broken.
+fn allow_assets(app: &AppHandle, dir: &Path) {
+    let _ = app.asset_protocol_scope().allow_directory(dir, true);
+}
+
 #[tauri::command]
-pub fn read_md(path: String) -> Result<String, String> {
+pub fn read_md(app: AppHandle, path: String) -> Result<String, String> {
     let target = PathBuf::from(&path);
 
     if !is_md(&target) {
@@ -72,15 +83,25 @@ pub fn read_md(path: String) -> Result<String, String> {
     // from_utf8_lossy rather than read_to_string: a stray invalid byte should show
     // as a replacement character, not refuse to open the document.
     let bytes = fs::read(&target).map_err(|e| e.to_string())?;
+
+    if let Some(parent) = target.parent() {
+        allow_assets(&app, parent);
+    }
+
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]
-pub fn list_tree(path: String) -> Result<TreeNode, String> {
+pub fn list_tree(app: AppHandle, path: String) -> Result<TreeNode, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err("not a folder".into());
     }
+
+    // Covers the common docs layout where a page in docs/ points at ../assets/,
+    // which the per-document grant above would miss.
+    allow_assets(&app, &root);
+
     let mut budget = MAX_FILES;
     Ok(walk(&root, 0, &mut budget))
 }
