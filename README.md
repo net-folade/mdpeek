@@ -8,6 +8,17 @@ Built with Tauri, mdpeek uses the WebKit already on your Mac — no bundled Chro
 
 ![mdpeek reading a Markdown file, with the file sidebar open on the left and syntax-highlighted code blocks in the document](img/peek-1.png)
 
+### Prerequisites
+
+- [Rust](https://rustup.rs) 1.77.2 or newer
+- Node.js 20.19+ or 22.12+
+- Xcode Command Line Tools
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+xcode-select --install
+```
+
 ### Run
 
 ```sh
@@ -23,6 +34,8 @@ open src-tauri/target/release/bundle/macos/
 ```
 
 To use `.md` file associations, build the app and move `mdpeek.app` to `/Applications`.
+
+Prebuilt `.dmg` releases are Apple Silicon only. On an Intel Mac, build from source.
 
 Because the app isn’t notarized, macOS may block downloaded builds. Clear the quarantine flag first:
 
