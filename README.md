@@ -6,7 +6,7 @@ Open a file, read it, move on. No sync, plugins, or vaults.
 
 Built with Tauri, mdpeek uses the WebKit already on your Mac — no bundled Chromium or Electron runtime.
 
-![mdpeek reading a Markdown file, with the file sidebar open on the left and syntax-highlighted code blocks in the document](peek-1.png)
+![mdpeek reading a Markdown file, with the file sidebar open on the left and syntax-highlighted code blocks in the document](img/peek-1.png)
 
 ### Run
 
@@ -41,7 +41,7 @@ xattr -d com.apple.quarantine /Applications/mdpeek.app
 | `⌘=` `⌘-` `⌘0` | Text size |
 | `j` `k` `space` `g` `G` | Scroll |
 
-![The mdpeek start screen, listing the open, jump and find shortcuts above the text "or drop a .md file anywhere"](peek-2.png)
+![The mdpeek start screen, listing the open, jump and find shortcuts above the text "or drop a .md file anywhere"](img/peek-2.png)
 
 You can also drop a `.md` file or folder onto the window, or open one from the shell:
 
