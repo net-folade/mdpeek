@@ -81,3 +81,7 @@ src-tauri/src/
 ```
 
 That's it. mdpeek reads Markdown.
+
+### License
+
+MIT — see [LICENSE](LICENSE).
