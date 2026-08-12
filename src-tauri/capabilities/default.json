@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "mdpeek needs a native file picker, the ability to hand external links to the system browser, and Finder reveal for local files it cannot display. All filesystem reads go through this app's own commands, not the fs plugin.",
+  "description": "mdpeek needs a native file picker, the ability to hand external links to the system browser, Finder reveal for local files it cannot display, and window dragging for its overlay title bar. All filesystem reads go through this app's own commands, not the fs plugin.",
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "dialog:allow-open",
     {
       "identifier": "opener:allow-open-url",
