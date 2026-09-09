@@ -22,7 +22,6 @@
   --shadow: 0 12px 40px #00000080;
 
   --font: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-  --measure: 76ch;
   --size: 13.5px;
   --lh: 1.72;
   --pad: 40px;
@@ -207,7 +206,8 @@ button:active { transform: translateY(0.5px); }
   padding: 24px var(--pad) 45vh;
   scroll-padding-top: 24px;
 }
-.markdown > * { max-width: var(--measure); }
+.markdown > * { max-width: 100%; }
+.markdown p, .markdown li, .markdown a { overflow-wrap: anywhere; }
 .markdown:empty { display: none; }
 
 .markdown p,
@@ -305,7 +305,7 @@ button:active { transform: translateY(0.5px); }
 /* tables */
 .markdown table {
   width: 100%;
-  max-width: var(--measure);
+  max-width: 100%;
   border-collapse: collapse;
   margin: 0 0 1.4em;
   font-size: 0.92em;

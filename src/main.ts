@@ -1,5 +1,3 @@
-import './style.css';
-
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -25,6 +23,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 };
 
 const app = $('app');
+const sidebar = $('sidebar');
+const sidebarButton = $<HTMLButtonElement>('btn-sidebar');
 const content = $<HTMLElement>('content');
 const reader = $('reader');
 const emptyState = $('empty');
@@ -50,6 +50,19 @@ interface State {
 }
 
 const state: State = { filePath: null, fileSource: '', folderPath: null, entries: [] };
+
+function setSidebarVisible(visible: boolean): void {
+  if (!visible && sidebar.contains(document.activeElement)) sidebarButton.focus();
+  app.dataset.sidebar = visible ? 'shown' : 'hidden';
+  sidebar.inert = !visible;
+  sidebarButton.setAttribute('aria-expanded', String(visible));
+  sidebarButton.textContent = visible ? 'hide files' : 'show files';
+  sidebarButton.title = `${visible ? 'Hide' : 'Show'} files — ⌘B`;
+}
+
+function toggleSidebar(): void {
+  setSidebarVisible(app.dataset.sidebar !== 'shown');
+}
 
 const basename = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
 const dirname = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/';
@@ -131,7 +144,7 @@ async function openFolder(path: string): Promise<void> {
   folderName.title = path;
   filterInput.value = '';
   renderTree(tree, state.entries, state.filePath, (p) => void openFile(p));
-  app.dataset.sidebar = 'shown';
+  setSidebarVisible(true);
 
   if (!state.filePath) {
     const readme = state.entries.find((e) => /^readme\.mdx?$/i.test(e.name)) ?? state.entries[0];
@@ -544,7 +557,7 @@ document.addEventListener('keydown', (ev) => {
   }
   if (mod && ev.key.toLowerCase() === 'b') {
     ev.preventDefault();
-    app.dataset.sidebar = app.dataset.sidebar === 'shown' ? 'hidden' : 'shown';
+    toggleSidebar();
     return;
   }
   if (mod && (ev.key === '=' || ev.key === '+')) {
@@ -599,6 +612,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 $('btn-file').addEventListener('click', () => void pickFile());
+sidebarButton.addEventListener('click', toggleSidebar);
 $('btn-folder').addEventListener('click', () => void pickFolder());
 
 /* ── host integration ──────────────────────────────────────────────────────── */

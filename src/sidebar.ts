@@ -60,7 +60,10 @@ export function filterEntries(entries: FileEntry[], query: string): FileEntry[] 
   const q = query.trim();
   if (!q) return entries;
   return entries
-    .map((e) => ({ e, s: Math.max(fuzzyScore(q, e.name) + 200, fuzzyScore(q, `${e.dir}/${e.name}`)) }))
+    .map((e) => {
+      const nameScore = fuzzyScore(q, e.name);
+      return { e, s: Math.max(nameScore < 0 ? -1 : nameScore + 200, fuzzyScore(q, `${e.dir}/${e.name}`)) };
+    })
     .filter((r) => r.s > 0)
     .sort((a, b) => b.s - a.s)
     .map((r) => r.e);
