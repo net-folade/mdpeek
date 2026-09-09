@@ -11,7 +11,7 @@ Built with Tauri, mdpeek uses the WebKit already on your Mac — no bundled Chro
 ### Prerequisites
 
 - [Rust](https://rustup.rs) 1.77.2 or newer
-- Node.js 20.19+ or 22.12+
+- Node.js 22.22.2+ (22.x), 24.15+ (24.x), or 26+
 - Xcode Command Line Tools
 
 ```sh
@@ -102,3 +102,36 @@ That's it. mdpeek reads Markdown.
 ### License
 
 MIT — see [LICENSE](LICENSE).
+
+### Tests and CI
+
+```sh
+npm ci
+npm test
+npx playwright install webkit
+npm run test:ui
+npm run build
+cargo test --locked --manifest-path src-tauri/Cargo.toml
+```
+
+`npm run test:watch` reruns frontend tests as you edit. Use a supported Node
+version above; Node 20 cannot run the installed test dependencies.
+
+| Coverage | Why it matters |
+| --- | --- |
+| Markdown, frontmatter, headings, code, math, and diagrams | These are the reader's core output; parser and renderer upgrades can change it. |
+| HTML sanitization and link routing | Documents are untrusted. Strip executable content and reveal local non-Markdown files in Finder. |
+| Rust file validation, size boundaries, traversal limits, symlinks, and search | Keep reads constrained and folder navigation bounded; verify search limits and Unicode snippets. |
+| Sidebar, cancellation, read errors, find, and live reload events | Protect everyday reading flows, focus behavior, and the current document when operations fail. |
+| WebKit layout, resizing, scrolling, and lazy rendering | DOM tests cannot validate CSS geometry or real browser rendering. |
+| TypeScript production build and Tauri compilation | Catch type errors, bundling failures, and native integration build failures. |
+
+GitHub Actions runs these checks on macOS for every push and pull request,
+including `npm run tauri build -- --debug --no-bundle`. Failed browser runs
+upload screenshots, traces, and an HTML report for diagnosis.
+
+Browser and app tests replace native IPC. Before a release, manually check the
+desktop app with `npm run tauri dev`: native file/folder dialogs, drag and drop,
+Finder file associations, local images, and live reload after repeated atomic
+editor saves. The automated reload test exercises event handling, not the
+operating system's filesystem watcher or signed distribution packaging.

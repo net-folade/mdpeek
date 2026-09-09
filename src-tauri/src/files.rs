@@ -66,13 +66,19 @@ fn allow_assets(app: &AppHandle, dir: &Path) {
 
 #[tauri::command]
 pub fn read_md(app: AppHandle, path: String) -> Result<String, String> {
-    let target = PathBuf::from(&path);
+    let source = read_source(Path::new(&path))?;
+    if let Some(parent) = Path::new(&path).parent() {
+        allow_assets(&app, parent);
+    }
+    Ok(source)
+}
 
-    if !is_md(&target) {
+fn read_source(target: &Path) -> Result<String, String> {
+    if !is_md(target) {
         return Err("not a markdown file".into());
     }
 
-    let meta = fs::metadata(&target).map_err(|e| format!("{}: {}", path, e))?;
+    let meta = fs::metadata(target).map_err(|e| format!("{}: {}", target.display(), e))?;
     if !meta.is_file() {
         return Err("not a file".into());
     }
@@ -82,11 +88,7 @@ pub fn read_md(app: AppHandle, path: String) -> Result<String, String> {
 
     // from_utf8_lossy rather than read_to_string: a stray invalid byte should show
     // as a replacement character, not refuse to open the document.
-    let bytes = fs::read(&target).map_err(|e| e.to_string())?;
-
-    if let Some(parent) = target.parent() {
-        allow_assets(&app, parent);
-    }
+    let bytes = fs::read(target).map_err(|e| e.to_string())?;
 
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -224,4 +226,126 @@ fn collect(node: &TreeNode, out: &mut Vec<String>) {
             out.push(child.path.clone());
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "mdpeek-tests-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn write(&self, name: &str, data: &[u8]) -> PathBuf {
+            let path = self.0.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, data).unwrap();
+            path
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn reads_supported_extensions_and_replaces_invalid_utf8() {
+        let fixture = Fixture::new();
+        for ext in ["md", "MD", "markdown", "mdx", "mdown"] {
+            let path = fixture.write(&format!("note.{ext}"), b"hello\xff");
+            assert_eq!(read_source(&path).unwrap(), "hello\u{fffd}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_markdown_missing_directories_and_oversized_files() {
+        let fixture = Fixture::new();
+        assert!(read_source(&fixture.write("note.txt", b"text")).is_err());
+        assert!(read_source(&fixture.0.join("missing.md")).is_err());
+        let dir = fixture.0.join("directory.md");
+        fs::create_dir(&dir).unwrap();
+        assert_eq!(read_source(&dir).unwrap_err(), "not a file");
+        let big = fixture.write("big.md", b"");
+        fs::File::options().write(true).open(&big).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert!(read_source(&big).unwrap_err().contains("too large"));
+    }
+
+    #[test]
+    fn tree_filters_sorts_and_respects_file_and_depth_limits() {
+        let fixture = Fixture::new();
+        for name in ["z.md", "A.md", "guide/help.md", ".hidden.md", "node_modules/no.md", "empty/file.txt"] {
+            fixture.write(name, b"hello");
+        }
+        let mut budget = 20;
+        let tree = walk(&fixture.0, 0, &mut budget);
+        assert_eq!(tree.children.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), vec!["A.md", "z.md", "guide"]);
+        let mut paths = vec![];
+        collect(&tree, &mut paths);
+        assert_eq!(paths.len(), 3);
+        let mut budget = 1;
+        paths.clear();
+        collect(&walk(&fixture.0, 0, &mut budget), &mut paths);
+        assert_eq!(paths.len(), 1);
+        assert!(walk(&fixture.0, MAX_DEPTH, &mut 20).children.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_does_not_follow_symlinks() {
+        let fixture = Fixture::new();
+        fixture.write("note.md", b"hello");
+        std::os::unix::fs::symlink(&fixture.0, fixture.0.join("cycle")).unwrap();
+        std::os::unix::fs::symlink(fixture.0.join("note.md"), fixture.0.join("alias.md")).unwrap();
+        assert_eq!(walk(&fixture.0, 0, &mut 20).children.len(), 1);
+    }
+
+    #[test]
+    fn search_is_case_insensitive_one_hit_per_file_and_capped() {
+        let fixture = Fixture::new();
+        fixture.write("a.md", b"first\nHELLO world\nhello again");
+        fixture.write("b.md", b"hello second file");
+        fixture.write("ignored.txt", b"hello");
+        let path = as_string(&fixture.0);
+        let hits = search_folder(path.clone(), "hello".into(), 200).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].line, 2);
+        assert_eq!(hits[0].text, "HELLO world");
+        assert_eq!(search_folder(path.clone(), "HELLO".into(), 1).unwrap().len(), 1);
+        assert!(search_folder(path.clone(), "".into(), 10).unwrap().is_empty());
+        assert!(search_folder(path, "absent".into(), 10).unwrap().is_empty());
+        assert!(search_folder(as_string(&fixture.0.join("missing")), "hello".into(), 10).is_err());
+    }
+
+    #[test]
+    fn accepts_file_at_size_limit_and_search_skips_larger_files() {
+        let fixture = Fixture::new();
+        let path = fixture.write("boundary.md", b"needle");
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_len(MAX_BYTES).unwrap();
+        assert_eq!(read_source(&path).unwrap().len() as u64, MAX_BYTES);
+        assert_eq!(search_folder(as_string(&fixture.0), "needle".into(), 10).unwrap().len(), 1);
+        file.set_len(MAX_BYTES + 1).unwrap();
+        assert!(search_folder(as_string(&fixture.0), "needle".into(), 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_clamps_limits_and_truncates_snippets_on_character_boundaries() {
+        let fixture = Fixture::new();
+        let text = "é".repeat(170);
+        for index in 0..205 {
+            fixture.write(&format!("note-{index:03}.md"), text.as_bytes());
+        }
+        let path = as_string(&fixture.0);
+        let hits = search_folder(path.clone(), "É".into(), usize::MAX).unwrap();
+        assert_eq!(hits.len(), 200);
+        assert!(hits.iter().all(|hit| hit.text == "é".repeat(160)));
+        assert_eq!(search_folder(path, "é".into(), 0).unwrap().len(), 1);
+    }
+
 }
