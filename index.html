@@ -4,10 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mdpeek</title>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app" data-sidebar="hidden">
-      <aside id="sidebar">
+      <aside id="sidebar" inert>
         <div class="sidebar-head" data-tauri-drag-region>
           <span id="folder-name" class="folder-name"></span>
         </div>
@@ -17,6 +18,7 @@
 
       <main id="reader">
         <header id="bar" data-tauri-drag-region>
+          <button id="btn-sidebar" type="button" aria-controls="sidebar" aria-expanded="false" title="Show files — ⌘B">show files</button>
           <span id="crumb" class="crumb" data-tauri-drag-region></span>
           <span class="bar-actions">
             <button id="btn-file" type="button" title="Open file — ⌘O">file</button>
