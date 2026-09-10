@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # macos-14+ runners are arm64, which is what produces the aarch64 dmg.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve tag and version
+        id: v
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      # The version lives in three files plus two lockfiles. Drift between them
+      # is silent locally but breaks `cargo test --locked`, so fail loudly here
+      # rather than shipping a dmg whose name disagrees with the tag.
+      - name: Check version matches the tag
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          fail=0
+          check() {
+            if [ "$2" != "$VERSION" ]; then
+              echo "::error file=$1::$1 is $2, expected $VERSION"
+              fail=1
+            else
+              echo "ok: $1 = $2"
+            fi
+          }
+          check package.json "$(node -p 'require("./package.json").version')"
+          check src-tauri/tauri.conf.json "$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          check src-tauri/Cargo.toml "$(awk '/^\[package\]/{p=1;next} /^\[/{p=0} p&&/^version *=/{gsub(/[" ]/,"");sub(/^version=/,"");print;exit}' src-tauri/Cargo.toml)"
+          exit $fail
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: npm ci
+
+      # Cheap gate: these are the two suites that would catch a version bump
+      # that forgot to regenerate the lockfiles.
+      - run: npm test
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Build release bundle
+        run: npm run tauri build
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { inside = 1; next }
+            inside && /^## \[/ { exit }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::no CHANGELOG entry for $VERSION"
+            : > notes.md
+          fi
+          # printf, not a heredoc: a heredoc terminator indented to match the
+          # YAML block would never close it.
+          printf '%s\n' \
+            '' \
+            '### Install' \
+            '' \
+            'The `.dmg` is **Apple Silicon only**. On an Intel Mac, build from source.' \
+            '' \
+            "Because the app isn't notarized, macOS may block the downloaded build." \
+            'Clear the quarantine flag after installing:' \
+            '' \
+            '```' \
+            'xattr -dr com.apple.quarantine /Applications/mdpeek.app' \
+            '```' \
+            >> notes.md
+          echo "--- notes.md ---"
+          cat notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          dmg=$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -1)
+          if [ -z "$dmg" ]; then
+            echo "::error::no dmg was produced"
+            exit 1
+          fi
+          echo "Publishing $dmg to $TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading asset with --clobber."
+            gh release upload "$TAG" "$dmg" --clobber
+          else
+            gh release create "$TAG" "$dmg" \
+              --title "mdpeek $TAG" \
+              --notes-file notes.md
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdpeek-${{ steps.v.outputs.version }}-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          retention-days: 14
