@@ -33,21 +33,24 @@ npm run tauri build
 open src-tauri/target/release/bundle/macos/
 ```
 
-Or build a universal app that runs on both Apple Silicon and Intel:
-
-```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
-open src-tauri/target/universal-apple-darwin/release/bundle/macos/
-```
-
 To use `.md` file associations, build the app and move `mdpeek.app` to `/Applications`.
 
 ### Install
 
-Prebuilt `.dmg` releases are universal — Apple Silicon and Intel, macOS 10.15 or
-newer. Same steps either way: open the dmg and drag `mdpeek.app` to
-`/Applications`.
+Pick the `.dmg` that matches your Mac. Both need macOS 10.15 or newer, and both
+install the same way: open the dmg and drag `mdpeek.app` to `/Applications`.
+
+| Your Mac | Download | Updates |
+| --- | --- | --- |
+| Apple Silicon (M1 and later) | `mdpeek_<version>_aarch64.dmg` | Every release |
+| Intel | `mdpeek_<version>_x64.dmg` | Occasional |
+
+Not sure which you have? **Apple menu → About This Mac**. A "Chip" line means
+Apple Silicon; a "Processor" line means Intel.
+
+Apple Silicon is the primary build and ships with every release. Intel builds are
+cut on their own `intel-v*` tags, less often, and are listed separately on the
+[releases page](https://github.com/net-folade/mdpeek/releases).
 
 Because the app isn’t notarized, macOS may block downloaded builds. Clear the quarantine flag first:
 
