@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Intel Mac builds, released separately on `intel-v*` tags so they can lag
+  behind Apple Silicon without holding up a release.
+
 ### Changed
 
-- Release builds now produce a universal `.dmg` that runs on Apple Silicon and
-  Intel Macs, instead of an Apple Silicon-only build.
+- The release workflow picks its build target from the tag shape: `v*` builds
+  the Apple Silicon dmg and takes the Latest slot, `intel-v*` builds the Intel
+  dmg and never does. A `-rc.N` suffix on either publishes as a prerelease.
 
 ## [1.0.0] - 2026-09-10
 

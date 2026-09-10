@@ -1,13 +1,22 @@
 name: Release
 
+# Two tag shapes, two independent releases:
+#
+#   v1.2.3        -> Apple Silicon (aarch64) dmg, marked Latest
+#   intel-v1.2.3  -> Intel (x86_64) dmg, never marked Latest
+#
+# They are deliberately decoupled so the Intel build can lag behind without
+# holding up an Apple Silicon release. A trailing -rc.N / -beta.N on either
+# publishes as a prerelease.
 on:
   push:
     tags:
       - 'v*'
+      - 'intel-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build and release (e.g. v1.0.0)'
+        description: 'Existing tag to build and release (e.g. v1.0.0 or intel-v1.0.0)'
         required: true
 
 permissions:
@@ -19,8 +28,8 @@ concurrency:
 
 jobs:
   release:
-    # Any macOS runner works: the bundle is a universal binary, so the host
-    # architecture does not decide what ships.
+    # Any macOS runner works: the target is chosen explicitly below, so the
+    # host architecture does not decide what ships.
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -28,19 +37,58 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Resolve tag and version
+      # Derives everything downstream from the tag shape alone, so cutting an
+      # Intel build is just a matter of the tag you push.
+      - name: Resolve tag, arch and version
         id: v
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          case "$tag" in
+            intel-v*)
+              version="${tag#intel-v}"
+              arch=intel; target=x86_64-apple-darwin;  label="Intel"
+              # Intel never takes the Latest slot; Apple Silicon owns it.
+              latest=false
+              ;;
+            v*)
+              version="${tag#v}"
+              arch=silicon; target=aarch64-apple-darwin; label="Apple Silicon"
+              latest=true
+              ;;
+            *)
+              echo "::error::tag '$tag' is neither v* nor intel-v*"
+              exit 1
+              ;;
+          esac
+
+          # A prerelease suffix (1.0.0-rc.1) is for the tag only; the manifests
+          # still carry the plain base version, so compare against that.
+          base="${version%%-*}"
+          if [ "$version" = "$base" ]; then
+            prerelease=
+          else
+            prerelease=--prerelease
+            # A prerelease is never Latest, whichever arch it is.
+            latest=false
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "arch=$arch"
+            echo "target=$target"
+            echo "label=$label"
+            echo "version=$version"
+            echo "base=$base"
+            echo "latest=$latest"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
       # The version lives in three files plus two lockfiles. Drift between them
       # is silent locally but breaks `cargo test --locked`, so fail loudly here
       # rather than shipping a dmg whose name disagrees with the tag.
       - name: Check version matches the tag
         env:
-          VERSION: ${{ steps.v.outputs.version }}
+          VERSION: ${{ steps.v.outputs.base }}
         run: |
           fail=0
           check() {
@@ -61,10 +109,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      # Both targets must be installed before cargo can lipo them together.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ steps.v.outputs.target }}
 
       - run: npm ci
 
@@ -73,15 +120,14 @@ jobs:
       - run: npm test
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
-      # universal-apple-darwin builds both slices and merges them, so one dmg
-      # runs on Apple Silicon and Intel. Output lands under
-      # target/universal-apple-darwin/, not target/release/.
+      # Output lands under target/<target>/, not target/release/.
       - name: Build release bundle
-        run: npm run tauri build -- --target universal-apple-darwin
+        run: npm run tauri build -- --target ${{ steps.v.outputs.target }}
 
       - name: Extract release notes from CHANGELOG
         env:
-          VERSION: ${{ steps.v.outputs.version }}
+          VERSION: ${{ steps.v.outputs.base }}
+          LABEL: ${{ steps.v.outputs.label }}
         run: |
           awk -v v="$VERSION" '
             $0 ~ "^## \\[" v "\\]" { inside = 1; next }
@@ -98,8 +144,8 @@ jobs:
             '' \
             '### Install' \
             '' \
-            'The `.dmg` is a universal build — it runs on Apple Silicon and Intel Macs' \
-            'running macOS 10.15 or newer.' \
+            "This \`.dmg\` is for **$LABEL** Macs, macOS 10.15 or newer." \
+            'Builds for the other architecture are released separately.' \
             '' \
             "Because the app isn't notarized, macOS may block the downloaded build." \
             'Clear the quarantine flag after installing:' \
@@ -115,8 +161,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
+          LABEL: ${{ steps.v.outputs.label }}
+          VERSION: ${{ steps.v.outputs.version }}
+          LATEST: ${{ steps.v.outputs.latest }}
+          PRERELEASE: ${{ steps.v.outputs.prerelease }}
+          TARGET: ${{ steps.v.outputs.target }}
         run: |
-          dmg=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -1)
+          dmg=$(find "src-tauri/target/$TARGET/release/bundle/dmg" -maxdepth 1 -name '*.dmg' | head -1)
           if [ -z "$dmg" ]; then
             echo "::error::no dmg was produced"
             exit 1
@@ -126,13 +177,17 @@ jobs:
             echo "Release $TAG already exists; uploading asset with --clobber."
             gh release upload "$TAG" "$dmg" --clobber
           else
+            # --latest=false keeps an Intel release from displacing the Apple
+            # Silicon one at the top of the releases page.
             gh release create "$TAG" "$dmg" \
-              --title "mdpeek $TAG" \
-              --notes-file notes.md
+              --title "mdpeek $VERSION ($LABEL)" \
+              --notes-file notes.md \
+              --latest="$LATEST" \
+              $PRERELEASE
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mdpeek-${{ steps.v.outputs.version }}-dmg
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          name: mdpeek-${{ steps.v.outputs.version }}-${{ steps.v.outputs.arch }}-dmg
+          path: src-tauri/target/${{ steps.v.outputs.target }}/release/bundle/dmg/*.dmg
           retention-days: 14
