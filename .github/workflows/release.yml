@@ -19,7 +19,8 @@ concurrency:
 
 jobs:
   release:
-    # macos-14+ runners are arm64, which is what produces the aarch64 dmg.
+    # Any macOS runner works: the bundle is a universal binary, so the host
+    # architecture does not decide what ships.
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -60,7 +61,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Both targets must be installed before cargo can lipo them together.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - run: npm ci
 
@@ -69,8 +73,11 @@ jobs:
       - run: npm test
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
+      # universal-apple-darwin builds both slices and merges them, so one dmg
+      # runs on Apple Silicon and Intel. Output lands under
+      # target/universal-apple-darwin/, not target/release/.
       - name: Build release bundle
-        run: npm run tauri build
+        run: npm run tauri build -- --target universal-apple-darwin
 
       - name: Extract release notes from CHANGELOG
         env:
@@ -91,7 +98,8 @@ jobs:
             '' \
             '### Install' \
             '' \
-            'The `.dmg` is **Apple Silicon only**. On an Intel Mac, build from source.' \
+            'The `.dmg` is a universal build — it runs on Apple Silicon and Intel Macs' \
+            'running macOS 10.15 or newer.' \
             '' \
             "Because the app isn't notarized, macOS may block the downloaded build." \
             'Clear the quarantine flag after installing:' \
@@ -108,7 +116,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
         run: |
-          dmg=$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -1)
+          dmg=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -1)
           if [ -z "$dmg" ]; then
             echo "::error::no dmg was produced"
             exit 1
@@ -126,5 +134,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mdpeek-${{ steps.v.outputs.version }}-dmg
-          path: src-tauri/target/release/bundle/dmg/*.dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 14
