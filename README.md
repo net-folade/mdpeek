@@ -33,7 +33,7 @@ npm run tauri build
 open src-tauri/target/release/bundle/macos/
 ```
 
-Build a universal app that runs on both Apple Silicon and Intel:
+Or build a universal app that runs on both Apple Silicon and Intel:
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -43,8 +43,11 @@ open src-tauri/target/universal-apple-darwin/release/bundle/macos/
 
 To use `.md` file associations, build the app and move `mdpeek.app` to `/Applications`.
 
-Prebuilt `.dmg` releases are universal: they run on Apple Silicon and Intel Macs
-on macOS 10.15 or newer.
+### Install
+
+Prebuilt `.dmg` releases are universal — Apple Silicon and Intel, macOS 10.15 or
+newer. Same steps either way: open the dmg and drag `mdpeek.app` to
+`/Applications`.
 
 Because the app isn’t notarized, macOS may block downloaded builds. Clear the quarantine flag first:
 
