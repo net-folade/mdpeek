@@ -90,6 +90,127 @@ it('leaves the reader unchanged when the file dialog is cancelled', async () => 
   expect(document.querySelector('#content h1')?.textContent).toBe('Welcome');
 });
 
+it('switches visibly between editing and preview and saves changes', async () => {
+  await openDocs();
+  const edit = document.getElementById('btn-edit') as HTMLButtonElement;
+  const save = document.getElementById('btn-save') as HTMLButtonElement;
+  const editor = document.getElementById('editor') as HTMLTextAreaElement;
+
+  expect(edit.hidden).toBe(false);
+  expect(edit.textContent).toBe('edit');
+  edit.click();
+  expect(edit.textContent).toBe('preview');
+  expect(editor.hidden).toBe(false);
+  expect(editor.value).toContain('# Welcome');
+
+  editor.value = '# Draft';
+  editor.dispatchEvent(new Event('input'));
+  expect(save.disabled).toBe(false);
+  expect(document.getElementById('save-status')!.textContent).toBe('unsaved');
+
+  edit.click();
+  await vi.waitFor(() => expect(document.querySelector('#content h1')?.textContent).toBe('Draft'));
+  invoke.mockClear();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true }));
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('write_md', {
+    path: '/docs/README.md', source: '# Draft', expectedSource: '# Welcome\n\nHello reader',
+  }));
+  expect(save.disabled).toBe(true);
+  expect(document.getElementById('save-status')!.textContent).toBe('');
+});
+
+it('keeps newer edits dirty and serializes saves while a write is pending', async () => {
+  await openDocs();
+  document.getElementById('btn-edit')!.click();
+  const editor = document.getElementById('editor') as HTMLTextAreaElement;
+  const save = document.getElementById('btn-save') as HTMLButtonElement;
+  let finishWrite!: () => void;
+  const pendingWrite = new Promise<void>((resolve) => { finishWrite = resolve; });
+  invoke.mockImplementation((command: string) => command === 'write_md' ? pendingWrite : null);
+
+  editor.value = '# First draft';
+  editor.dispatchEvent(new Event('input'));
+  save.click();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('write_md', {
+    path: '/docs/README.md', source: '# First draft', expectedSource: '# Welcome\n\nHello reader',
+  }));
+
+  editor.value = '# Newer draft';
+  editor.dispatchEvent(new Event('input'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true }));
+  expect(invoke.mock.calls.filter(([command]) => command === 'write_md')).toHaveLength(1);
+
+  finishWrite();
+  await vi.waitFor(() => expect(save.textContent).toBe('save'));
+  expect(save.disabled).toBe(false);
+  expect(document.getElementById('save-status')!.textContent).toBe('unsaved');
+});
+
+it('does not apply a completed save to a file opened while the write is pending', async () => {
+  await openDocs();
+  document.getElementById('btn-edit')!.click();
+  const editor = document.getElementById('editor') as HTMLTextAreaElement;
+  let finishWrite!: () => void;
+  const pendingWrite = new Promise<void>((resolve) => { finishWrite = resolve; });
+  invoke.mockImplementation(async (command: string, args?: { path?: string }) => {
+    if (command === 'write_md') return pendingWrite;
+    if (command === 'read_md' && args?.path === '/docs/other.md') return '# Other';
+    return null;
+  });
+
+  editor.value = '# Draft';
+  editor.dispatchEvent(new Event('input'));
+  document.getElementById('btn-save')!.click();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('write_md', expect.anything()));
+
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  open.mockResolvedValue('/docs/other.md');
+  document.getElementById('btn-file')!.click();
+  await vi.waitFor(() => expect(document.querySelector('#content h1')?.textContent).toBe('Other'));
+  finishWrite();
+  await vi.waitFor(() => expect(document.getElementById('btn-save')!.textContent).toBe('save'));
+
+  document.getElementById('btn-edit')!.click();
+  editor.dispatchEvent(new Event('input'));
+  expect(editor.value).toBe('# Other');
+  expect((document.getElementById('btn-save') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('allows an explicit confirmed reload of the current dirty file', async () => {
+  await openDocs();
+  document.getElementById('btn-edit')!.click();
+  const editor = document.getElementById('editor') as HTMLTextAreaElement;
+  editor.value = '# Unsaved';
+  editor.dispatchEvent(new Event('input'));
+
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  open.mockResolvedValue('/docs/README.md');
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'read_md') return '# Reloaded';
+    return null;
+  });
+  document.getElementById('btn-file')!.click();
+
+  await vi.waitFor(() => expect(document.querySelector('#content h1')?.textContent).toBe('Reloaded'));
+  expect(confirm).toHaveBeenCalledWith('discard unsaved changes?');
+  expect(editor.value).toBe('# Reloaded');
+});
+
+it('keeps unsaved text when a watched file changes', async () => {
+  await openDocs();
+  document.getElementById('btn-edit')!.click();
+  const editor = document.getElementById('editor') as HTMLTextAreaElement;
+  editor.value = '# Unsaved';
+  editor.dispatchEvent(new Event('input'));
+  invoke.mockClear();
+
+  listeners.get('file-changed')!({ payload: '/docs/README.md' });
+
+  expect(invoke).not.toHaveBeenCalled();
+  expect(editor.value).toBe('# Unsaved');
+  expect(document.getElementById('toast')!.textContent).toContain('changed on disk');
+});
+
 it('finds text case-insensitively and clears highlights on Escape', async () => {
   await openDocs();
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true }));

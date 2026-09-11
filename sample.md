@@ -12,7 +12,6 @@ than inside the app. An [internal link](#code) should scroll instead.
 > A blockquote, for the quieter parts.
 >
 > Spanning two paragraphs.
-
 ---
 
 ## Code
@@ -79,7 +78,7 @@ flowchart LR
 The next line contains an injection attempt. You should see the text, and nothing
 should execute:
 
-<img src=x onerror="alert('xss')">
+<span onclick="alert('xss')">sanitized text</span>
 
 <script>alert('xss')</script>
 

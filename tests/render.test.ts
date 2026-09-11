@@ -26,8 +26,9 @@ describe('Markdown rendering', () => {
   });
 
   it('removes executable HTML and unsafe URLs while keeping ordinary links', () => {
-    const root = render('<script>alert(1)</script><img src="x" onerror="alert(1)"><iframe src="https://evil.test"></iframe><form><input></form>\n\n[bad](javascript:alert%281%29) [good](https://example.com)');
-    expect(root.querySelector('script, iframe, form, [onerror]')).toBeNull();
+    const root = render('<script>alert(1)</script><img src="x" onerror="alert(1)"><span onclick="alert(1)">sanitized text</span><iframe src="https://evil.test"></iframe><form><input></form>\n\n[bad](javascript:alert%281%29) [good](https://example.com)');
+    expect(root.querySelector('script, iframe, form, [onerror], [onclick]')).toBeNull();
+    expect(root.querySelector('span')?.textContent).toBe('sanitized text');
     expect(root.querySelector('a[href^="javascript:"]')).toBeNull();
     expect(root.querySelector('a[href="https://example.com"]')).not.toBeNull();
   });

@@ -21,12 +21,16 @@
           <button id="btn-sidebar" type="button" aria-controls="sidebar" aria-expanded="false" title="Show files — ⌘B">show files</button>
           <span id="crumb" class="crumb" data-tauri-drag-region></span>
           <span class="bar-actions">
+            <span id="save-status" class="save-status" aria-live="polite"></span>
+            <button id="btn-edit" type="button" title="Edit — ⌘E" hidden>edit</button>
+            <button id="btn-save" type="button" title="Save — ⌘S" hidden disabled>save</button>
             <button id="btn-file" type="button" title="Open file — ⌘O">file</button>
             <button id="btn-folder" type="button" title="Open folder — ⇧⌘O">folder</button>
           </span>
         </header>
 
         <article id="content" class="markdown" tabindex="-1"></article>
+        <textarea id="editor" class="editor" aria-label="Markdown editor" spellcheck="true" hidden></textarea>
 
         <div id="empty" class="empty">
           <pre class="logo">
@@ -39,6 +43,8 @@
             <li><kbd>⇧⌘O</kbd> open a folder</li>
             <li><kbd>⌘K</kbd> jump to a file</li>
             <li><kbd>⌘F</kbd> find in document</li>
+            <li><kbd>⌘E</kbd> toggle edit / preview</li>
+            <li><kbd>⌘S</kbd> save changes</li>
           </ul>
           <p class="hint">or drop a <code>.md</code> file anywhere</p>
         </div>

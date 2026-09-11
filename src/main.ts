@@ -26,6 +26,7 @@ const app = $('app');
 const sidebar = $('sidebar');
 const sidebarButton = $<HTMLButtonElement>('btn-sidebar');
 const content = $<HTMLElement>('content');
+const editor = $<HTMLTextAreaElement>('editor');
 const reader = $('reader');
 const emptyState = $('empty');
 const crumb = $('crumb');
@@ -33,6 +34,9 @@ const tree = $('tree');
 const filterInput = $<HTMLInputElement>('filter');
 const folderName = $('folder-name');
 const toastEl = $('toast');
+const editButton = $<HTMLButtonElement>('btn-edit');
+const saveButton = $<HTMLButtonElement>('btn-save');
+const saveStatus = $('save-status');
 
 const palette = $('palette');
 const paletteInput = $<HTMLInputElement>('palette-input');
@@ -47,9 +51,18 @@ interface State {
   fileSource: string;
   folderPath: string | null;
   entries: FileEntry[];
+  mode: 'preview' | 'edit';
+  dirty: boolean;
 }
 
-const state: State = { filePath: null, fileSource: '', folderPath: null, entries: [] };
+const state: State = {
+  filePath: null,
+  fileSource: '',
+  folderPath: null,
+  entries: [],
+  mode: 'preview',
+  dirty: false,
+};
 
 function setSidebarVisible(visible: boolean): void {
   if (!visible && sidebar.contains(document.activeElement)) sidebarButton.focus();
@@ -77,7 +90,52 @@ function toast(msg: string): void {
 
 /* ── opening files ─────────────────────────────────────────────────────────── */
 
-async function openFile(path: string, opts: { keepScroll?: boolean } = {}): Promise<void> {
+function updateEditControls(): void {
+  const hasFile = state.filePath !== null;
+  editButton.hidden = !hasFile;
+  saveButton.hidden = !hasFile;
+  editButton.textContent = state.mode === 'edit' ? 'preview' : 'edit';
+  editButton.title = `${state.mode === 'edit' ? 'Preview' : 'Edit'} — ⌘E`;
+  saveButton.disabled = !state.dirty;
+  saveStatus.textContent = state.dirty ? 'unsaved' : '';
+  if (state.filePath) document.title = `${state.dirty ? '• ' : ''}${basename(state.filePath)}`;
+}
+
+async function renderPreview(source: string, keepScroll = false): Promise<void> {
+  const scrollTop = keepScroll ? content.scrollTop : 0;
+  content.innerHTML = toSafeHtml(source);
+  if (state.filePath) resolveAssets(dirname(state.filePath));
+  content.scrollTop = keepScroll ? scrollTop : 0;
+  await enhance(content);
+}
+
+async function setMode(mode: State['mode']): Promise<void> {
+  if (!state.filePath || mode === state.mode) return;
+  state.mode = mode;
+  closeFind();
+  if (mode === 'edit') {
+    content.hidden = true;
+    editor.hidden = false;
+    editor.focus();
+  } else {
+    editor.hidden = true;
+    content.hidden = false;
+    await renderPreview(editor.value);
+    content.focus();
+  }
+  updateEditControls();
+}
+
+function mayDiscardDraft(): boolean {
+  if (!state.dirty) return true;
+  return window.confirm('discard unsaved changes?');
+}
+
+async function openFile(
+  path: string,
+  opts: { keepScroll?: boolean; preserveMode?: boolean; skipDiscard?: boolean } = {},
+): Promise<void> {
+  if (!opts.skipDiscard && !mayDiscardDraft()) return;
   let source: string;
   try {
     source = await invoke<string>('read_md', { path });
@@ -86,29 +144,67 @@ async function openFile(path: string, opts: { keepScroll?: boolean } = {}): Prom
     return;
   }
 
-  const scrollTop = opts.keepScroll ? content.scrollTop : 0;
   const isSameFile = state.filePath === path;
+  const nextMode = opts.preserveMode ? state.mode : 'preview';
 
   state.filePath = path;
   state.fileSource = source;
+  state.mode = nextMode;
+  state.dirty = false;
+  editor.value = source;
 
   closeFind();
-  content.innerHTML = toSafeHtml(source);
-  resolveAssets(dirname(path));
-  content.scrollTop = opts.keepScroll && isSameFile ? scrollTop : 0;
+  editor.hidden = nextMode !== 'edit';
+  content.hidden = nextMode === 'edit';
+  if (nextMode === 'preview') await renderPreview(source, Boolean(opts.keepScroll && isSameFile));
 
   emptyState.hidden = true;
   updateCrumb(path);
   markActive(tree, path);
-  document.title = basename(path);
+  updateEditControls();
 
   // Watch after render so a slow first paint isn't held up by the IPC round trip.
   void invoke('watch_file', { path }).catch(() => {
     /* watching is a nicety; a failure here shouldn't surface to the user */
   });
 
-  await enhance(content);
 }
+
+let saveInFlight = false;
+
+async function saveFile(): Promise<void> {
+  if (!state.filePath || !state.dirty || saveInFlight) return;
+  const path = state.filePath;
+  const source = editor.value;
+  const expectedSource = state.fileSource;
+  saveInFlight = true;
+  saveButton.disabled = true;
+  saveButton.textContent = 'saving…';
+
+  try {
+    await invoke('write_md', {
+      path,
+      source,
+      expectedSource,
+    });
+    if (state.filePath === path) {
+      state.fileSource = source;
+      state.dirty = editor.value !== source;
+    }
+    toast('saved');
+  } catch (err) {
+    toast(String(err));
+  } finally {
+    saveInFlight = false;
+    saveButton.textContent = 'save';
+    updateEditControls();
+  }
+}
+
+editor.addEventListener('input', () => {
+  state.dirty = editor.value !== state.fileSource;
+  updateEditControls();
+});
 
 /**
  * Point `<img src>` at something the webview can actually fetch.
@@ -540,6 +636,16 @@ function setFontScale(next: number): void {
 document.addEventListener('keydown', (ev) => {
   const mod = ev.metaKey || ev.ctrlKey;
 
+  if (mod && ev.key.toLowerCase() === 's') {
+    ev.preventDefault();
+    void saveFile();
+    return;
+  }
+  if (mod && ev.key.toLowerCase() === 'e') {
+    ev.preventDefault();
+    void setMode(state.mode === 'edit' ? 'preview' : 'edit');
+    return;
+  }
   if (mod && ev.key.toLowerCase() === 'o') {
     ev.preventDefault();
     void (ev.shiftKey ? pickFolder() : pickFile());
@@ -550,7 +656,7 @@ document.addEventListener('keydown', (ev) => {
     openPalette();
     return;
   }
-  if (mod && ev.key.toLowerCase() === 'f') {
+  if (mod && ev.key.toLowerCase() === 'f' && state.mode === 'preview') {
     ev.preventDefault();
     openFind();
     return;
@@ -614,6 +720,10 @@ document.addEventListener('keydown', (ev) => {
 $('btn-file').addEventListener('click', () => void pickFile());
 sidebarButton.addEventListener('click', toggleSidebar);
 $('btn-folder').addEventListener('click', () => void pickFolder());
+editButton.addEventListener('click', () => {
+  void setMode(state.mode === 'edit' ? 'preview' : 'edit');
+});
+saveButton.addEventListener('click', () => void saveFile());
 
 /* ── host integration ──────────────────────────────────────────────────────── */
 
@@ -627,7 +737,12 @@ async function boot(): Promise<void> {
 
   // The watcher lets peekmd act as a live preview beside any editor.
   await listen<string>('file-changed', (ev) => {
-    if (ev.payload === state.filePath) void openFile(ev.payload, { keepScroll: true });
+    if (ev.payload !== state.filePath) return;
+    if (state.dirty) {
+      toast('file changed on disk — reopen before saving');
+      return;
+    }
+    void openFile(ev.payload, { keepScroll: true, preserveMode: true, skipDiscard: true });
   });
 
   await getCurrentWebview().onDragDropEvent((ev) => {
@@ -649,7 +764,12 @@ async function boot(): Promise<void> {
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   resetThemedRenderers();
-  if (state.filePath) void openFile(state.filePath, { keepScroll: true });
+  if (state.filePath && state.mode === 'preview') void renderPreview(editor.value, true);
+});
+
+window.addEventListener('beforeunload', (ev) => {
+  if (!state.dirty) return;
+  ev.preventDefault();
 });
 
 void boot().catch((err) => toast(`startup: ${String(err)}`));

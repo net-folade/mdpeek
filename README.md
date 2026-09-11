@@ -1,6 +1,6 @@
 # mdpeek
 
-A simple, lightweight Markdown reader.
+A simple, lightweight Markdown reader and editor.
 
 Open a file, read it, move on. No sync, plugins, or vaults.
 
@@ -66,10 +66,12 @@ xattr -d com.apple.quarantine /Applications/mdpeek.app
 | `⌘K` | Jump to a file (`>` searches contents) |
 | `⌘F` | Find in document |
 | `⌘B` | Toggle sidebar |
+| `⌘E` | Toggle edit / preview |
+| `⌘S` | Save changes |
 | `⌘=` `⌘-` `⌘0` | Text size |
 | `j` `k` `space` `g` `G` | Scroll |
 
-![The mdpeek start screen, listing the open, jump and find shortcuts above the text "or drop a .md file anywhere"](img/peek-2.png)
+![The mdpeek start screen, listing shortcuts for opening, finding, editing and saving Markdown files](img/peek-2.png)
 
 You can also drop a `.md` file or folder onto the window, or open one from the shell:
 
@@ -87,15 +89,9 @@ The frontend bundle is about **4MB**, with Mermaid accounting for most of it.
 
 ### Safe by default
 
-Filesystem access is handled by three read-only Rust commands, guarded by file extensions and an 8MB limit.
+Filesystem access is handled by small Rust commands guarded by file extensions and an 8MB limit. Saves use an expected-source check so an external edit cannot be overwritten silently.
 
 Rendered Markdown is sanitized with DOMPurify before reaching the DOM. Mermaid runs with `securityLevel: 'strict'`.
-
-### Coming in v2
-
-**Editing.**
-
-mdpeek will stay a lightweight Markdown viewer, with the option to make quick edits to the file you're reading — without turning into a full-blown editor.
 
 ### Structure
 
@@ -108,11 +104,11 @@ src/
 
 src-tauri/src/
   lib.rs        app setup
-  files.rs      read-only filesystem access
+  files.rs      guarded Markdown file access
   watch.rs      live reload
 ```
 
-That's it. mdpeek reads Markdown.
+That's it. mdpeek reads and edits Markdown.
 
 ### License
 

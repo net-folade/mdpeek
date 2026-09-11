@@ -54,8 +54,23 @@ test('the initial window is styled even when app JavaScript cannot load', async 
   await expect(page.locator('#app')).toHaveCSS('display', 'grid');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(13, 13, 15)');
   await expect(page.locator('#empty')).toHaveCSS('display', 'flex');
+  await expect(page.locator('#empty')).toContainText('⌘E toggle edit / preview');
+  await expect(page.locator('#empty')).toContainText('⌘S save changes');
   const empty = await page.locator('#empty').boundingBox();
   expect(empty!.width).toBeGreaterThan(800);
+});
+
+test('editing controls remain discoverable and preview unsaved Markdown', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'edit', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+  await expect(editor).toBeVisible();
+  await editor.fill('# Edited in mdpeek\n\nA draft paragraph.');
+  await expect(page.locator('#save-status')).toHaveText('unsaved');
+  await expect(page.getByRole('button', { name: 'save', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'preview', exact: true }).click();
+  await expect(page.locator('#content h1')).toHaveText('Edited in mdpeek');
+  await expect(page.locator('#content p')).toHaveText('A draft paragraph.');
 });
 
 
