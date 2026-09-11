@@ -2,11 +2,12 @@
 //!
 //! These are hand-written commands rather than the `fs` plugin on purpose: the
 //! plugin's scope configuration is fiddly and easy to leave too permissive. Here
-//! the reachable surface is exactly what these three functions allow — Markdown
-//! files, read-only, with an extension guard and a size cap.
+//! the reachable surface is exactly what these functions allow — Markdown files
+//! with an extension guard and a size cap.
 
 use serde::Serialize;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -86,11 +87,59 @@ fn read_source(target: &Path) -> Result<String, String> {
         return Err(format!("too large ({} MB)", meta.len() / 1_048_576));
     }
 
-    // from_utf8_lossy rather than read_to_string: a stray invalid byte should show
-    // as a replacement character, not refuse to open the document.
     let bytes = fs::read(target).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes)
+        .map_err(|_| "not valid UTF-8; convert the file before editing it".into())
+}
 
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+#[tauri::command]
+pub fn write_md(path: String, source: String, expected_source: String) -> Result<(), String> {
+    write_source(Path::new(&path), &source, &expected_source)
+}
+
+fn write_source(target: &Path, source: &str, expected_source: &str) -> Result<(), String> {
+    if !is_md(target) {
+        return Err("not a markdown file".into());
+    }
+    if source.len() as u64 > MAX_BYTES {
+        return Err("too large to save".into());
+    }
+
+    let current = read_source(target)?;
+    if current != expected_source {
+        return Err("file changed on disk; reopen it before saving".into());
+    }
+
+    let parent = target
+        .parent()
+        .ok_or_else(|| "file has no parent directory".to_string())?;
+    let permissions = fs::metadata(target)
+        .map_err(|e| e.to_string())?
+        .permissions();
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.as_file()
+        .set_permissions(permissions)
+        .map_err(|e| e.to_string())?;
+    temp.as_file_mut()
+        .write_all(source.as_bytes())
+        .map_err(|e| e.to_string())?;
+    temp.as_file_mut().sync_all().map_err(|e| e.to_string())?;
+
+    // Preparing the replacement may take time. Check again immediately before
+    // the atomic rename so an edit made while the temporary file was written is
+    // not knowingly overwritten.
+    if read_source(target)? != expected_source {
+        return Err("file changed on disk; reopen it before saving".into());
+    }
+
+    temp.persist(target).map_err(|e| e.error.to_string())?;
+    // The content is already committed once persist succeeds. Directory syncing
+    // improves crash durability where supported, but must not report a failed save
+    // after the replacement has happened.
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -255,12 +304,14 @@ mod tests {
     }
 
     #[test]
-    fn reads_supported_extensions_and_replaces_invalid_utf8() {
+    fn reads_supported_extensions_and_rejects_invalid_utf8() {
         let fixture = Fixture::new();
         for ext in ["md", "MD", "markdown", "mdx", "mdown"] {
-            let path = fixture.write(&format!("note.{ext}"), b"hello\xff");
-            assert_eq!(read_source(&path).unwrap(), "hello\u{fffd}");
+            let path = fixture.write(&format!("note.{ext}"), b"hello");
+            assert_eq!(read_source(&path).unwrap(), "hello");
         }
+        let invalid = fixture.write("invalid.md", b"hello\xff");
+        assert!(read_source(&invalid).unwrap_err().contains("not valid UTF-8"));
     }
 
     #[test]
@@ -274,6 +325,60 @@ mod tests {
         let big = fixture.write("big.md", b"");
         fs::File::options().write(true).open(&big).unwrap().set_len(MAX_BYTES + 1).unwrap();
         assert!(read_source(&big).unwrap_err().contains("too large"));
+    }
+
+    #[test]
+    fn writes_markdown_when_the_disk_version_matches() {
+        let fixture = Fixture::new();
+        let path = fixture.write("note.md", b"before");
+        write_source(&path, "after\n", "before").unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), "after\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_preserves_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        let path = fixture.write("note.md", b"before");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        write_source(&path, "after", "before").unwrap();
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
+
+    #[test]
+    fn rejects_stale_unsupported_and_oversized_writes() {
+        let fixture = Fixture::new();
+        let path = fixture.write("note.md", b"changed elsewhere");
+        assert!(write_source(&path, "mine", "old version")
+            .unwrap_err()
+            .contains("changed on disk"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "changed elsewhere");
+
+        let invalid = fixture.write("invalid.md", b"before\xff");
+        assert!(write_source(&invalid, "after", "before\u{fffd}")
+            .unwrap_err()
+            .contains("not valid UTF-8"));
+        assert_eq!(fs::read(&invalid).unwrap(), b"before\xff");
+
+        let text = fixture.write("note.txt", b"before");
+        assert_eq!(
+            write_source(&text, "after", "before").unwrap_err(),
+            "not a markdown file"
+        );
+        assert_eq!(
+            write_source(
+                &path,
+                &"x".repeat(MAX_BYTES as usize + 1),
+                "changed elsewhere"
+            )
+            .unwrap_err(),
+            "too large to save"
+        );
     }
 
     #[test]

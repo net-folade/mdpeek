@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-11
+
 ### Added
 
+- A focused Markdown editor with edit/preview switching, unsaved-state feedback,
+  keyboard shortcuts, and atomic saves that refuse to overwrite external edits.
 - Intel Mac builds, released separately on `intel-v*` tags so they can lag
   behind Apple Silicon without holding up a release.
 
@@ -39,5 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   frontmatter, local image and link rendering, syntax highlighting, KaTeX math
   and Mermaid diagrams.
 
+[Unreleased]: https://github.com/net-folade/mdpeek/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/net-folade/mdpeek/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/net-folade/mdpeek/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/net-folade/mdpeek/releases/tag/v0.1.0

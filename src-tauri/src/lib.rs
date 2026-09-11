@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_startup_path,
             files::read_md,
+            files::write_md,
             files::list_tree,
             files::search_folder,
             watch::watch_file,
