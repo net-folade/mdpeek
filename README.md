@@ -65,6 +65,7 @@ xattr -d com.apple.quarantine /Applications/mdpeek.app
 | `⌘O` / `⇧⌘O` | Open file / folder |
 | `⌘K` | Jump to a file (`>` searches contents) |
 | `⌘F` | Find in document |
+| `⇧⌘F` | Search all files in the folder |
 | `⌘B` | Toggle sidebar |
 | `⌘E` | Toggle edit / preview |
 | `⌘S` | Save changes |

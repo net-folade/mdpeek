@@ -9,6 +9,7 @@ import {
   flatten,
   filterEntries,
   renderTree,
+  renderResults,
   markActive,
   type FileEntry,
   type TreeNode,
@@ -50,6 +51,7 @@ interface State {
   filePath: string | null;
   fileSource: string;
   folderPath: string | null;
+  root: TreeNode | null;
   entries: FileEntry[];
   mode: 'preview' | 'edit';
   dirty: boolean;
@@ -59,6 +61,7 @@ const state: State = {
   filePath: null,
   fileSource: '',
   folderPath: null,
+  root: null,
   entries: [],
   mode: 'preview',
   dirty: false,
@@ -235,11 +238,12 @@ async function openFolder(path: string): Promise<void> {
   }
 
   state.folderPath = path;
+  state.root = root;
   state.entries = flatten(root);
   folderName.textContent = basename(path);
   folderName.title = path;
   filterInput.value = '';
-  renderTree(tree, state.entries, state.filePath, (p) => void openFile(p));
+  renderTree(tree, root, state.filePath, (p) => void openFile(p));
   setSidebarVisible(true);
 
   if (!state.filePath) {
@@ -458,13 +462,14 @@ let paletteRows: PaletteRow[] = [];
 let paletteIndex = 0;
 let searchTimer: number | undefined;
 
-function openPalette(): void {
+/** `prefix` pre-fills the input; '>' starts in content-search mode. */
+function openPalette(prefix = ''): void {
   if (!state.folderPath) {
     toast('open a folder first — ⇧⌘O');
     return;
   }
   palette.hidden = false;
-  paletteInput.value = '';
+  paletteInput.value = prefix;
   paletteInput.focus();
   refreshPalette();
 }
@@ -611,13 +616,9 @@ palette.addEventListener('mousedown', (ev) => {
 
 filterInput.addEventListener('input', () => {
   const query = filterInput.value.trim();
-  renderTree(
-    tree,
-    filterEntries(state.entries, query),
-    state.filePath,
-    (p) => void openFile(p),
-    query === '',
-  );
+  const onPick = (p: string): void => void openFile(p);
+  if (query === '' && state.root) renderTree(tree, state.root, state.filePath, onPick);
+  else renderResults(tree, filterEntries(state.entries, query), state.filePath, onPick);
 });
 
 /* ── keyboard ──────────────────────────────────────────────────────────────── */
@@ -654,6 +655,11 @@ document.addEventListener('keydown', (ev) => {
   if (mod && ev.key.toLowerCase() === 'k') {
     ev.preventDefault();
     openPalette();
+    return;
+  }
+  if (mod && ev.shiftKey && ev.key.toLowerCase() === 'f') {
+    ev.preventDefault();
+    openPalette('>');
     return;
   }
   if (mod && ev.key.toLowerCase() === 'f' && state.mode === 'preview') {
