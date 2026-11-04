@@ -199,8 +199,8 @@ fn walk(dir: &Path, depth: usize, budget: &mut usize) -> TreeNode {
     files.sort_by(by_name);
     dirs.sort_by(by_name);
 
-    // Files before subdirectories at each level: the sidebar groups by directory
-    // heading, so a level's own files should appear under its own heading first.
+    // Files before subdirectories at each level, so a folder's own files are
+    // listed above its subfolders in the sidebar tree.
     files.extend(dirs);
 
     TreeNode {

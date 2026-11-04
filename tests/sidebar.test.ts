@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { flatten, filterEntries, renderTree, markActive } from '../src/sidebar';
+import { flatten, filterEntries, renderTree, renderResults, markActive } from '../src/sidebar';
 
 const entries = [
   { name: 'README.md', path: '/docs/README.md', dir: '' },
@@ -7,12 +7,14 @@ const entries = [
   { name: 'usage.md', path: '/docs/guide/usage.md', dir: 'guide' },
 ];
 
+const root = { name: 'docs', path: '/docs', isDir: true, children: [
+  { name: 'README.md', path: entries[0].path, isDir: false, children: [] },
+  { name: 'guide', path: '/docs/guide', isDir: true, children: entries.slice(1).map(e => ({ name: e.name, path: e.path, isDir: false, children: [] })) },
+] };
+
 describe('file navigation', () => {
   it('flattens nested folders while preserving relative paths and order', () => {
-    expect(flatten({ name: 'docs', path: '/docs', isDir: true, children: [
-      { name: 'README.md', path: entries[0].path, isDir: false, children: [] },
-      { name: 'guide', path: '/docs/guide', isDir: true, children: entries.slice(1).map(e => ({ ...e, isDir: false, children: [] })) },
-    ] })).toEqual(entries);
+    expect(flatten(root)).toEqual(entries);
   });
 
   it('filters by filename or directory and excludes nonmatches', () => {
@@ -22,26 +24,38 @@ describe('file navigation', () => {
     expect(filterEntries(entries, '  ')).toEqual(entries);
   });
 
-  it('renders selectable files, groups folders, and moves the active marker', () => {
+  it('renders folders as a collapsible tree and moves the active marker', () => {
     const nav = document.createElement('nav');
     const pick = vi.fn();
-    renderTree(nav, entries, entries[0].path, pick);
-    expect(nav.querySelectorAll('.tree-dir')).toHaveLength(1);
-    const buttons = nav.querySelectorAll('button');
+    renderTree(nav, root, entries[0].path, pick);
+    const folder = nav.querySelector('details')!;
+    expect(folder.querySelector('summary')!.textContent).toBe('guide');
+    expect(folder.open).toBe(false);
+    expect(folder.querySelectorAll('.tree-item')).toHaveLength(2);
+    const buttons = nav.querySelectorAll<HTMLButtonElement>('.tree-item');
     buttons[1].click();
     expect(pick).toHaveBeenCalledWith(entries[1].path);
     buttons[1].scrollIntoView = vi.fn();
     markActive(nav, entries[1].path);
+    expect(folder.open).toBe(true);
     expect(nav.querySelectorAll('[aria-current]')).toHaveLength(1);
     expect(buttons[1].getAttribute('aria-current')).toBe('true');
   });
 
-  it('shows directory context for filtered results without repeated headings', () => {
+  it('opens folders that contain the active file', () => {
     const nav = document.createElement('nav');
-    renderTree(nav, entries.slice(1), null, vi.fn(), false);
-    expect(nav.querySelectorAll('.tree-dir')).toHaveLength(0);
+    renderTree(nav, root, entries[2].path, vi.fn());
+    expect(nav.querySelector('details')!.open).toBe(true);
+    renderTree(nav, { ...root, children: [] }, null, vi.fn());
+    expect(nav.textContent).toBe('no markdown files');
+  });
+
+  it('shows directory context for filtered results without folders', () => {
+    const nav = document.createElement('nav');
+    renderResults(nav, entries.slice(1), null, vi.fn());
+    expect(nav.querySelectorAll('details')).toHaveLength(0);
     expect(nav.querySelectorAll('.tree-where')).toHaveLength(2);
-    renderTree(nav, [], null, vi.fn());
+    renderResults(nav, [], null, vi.fn());
     expect(nav.textContent).toBe('no markdown files');
   });
 });

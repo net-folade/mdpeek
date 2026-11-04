@@ -250,3 +250,16 @@ it('routes Markdown links to the reader, web links to the browser, and other fil
   links[2].click();
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('read_md', { path: '/docs/guide/next page.md' }));
 });
+
+it('opens cross-file content search with Shift+Cmd+F, even while editing', async () => {
+  await openDocs();
+  document.getElementById('btn-edit')!.click();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', metaKey: true, shiftKey: true }));
+  expect(document.getElementById('palette')!.hidden).toBe(false);
+  expect(document.getElementById('find')!.hidden).toBe(true);
+  const input = document.getElementById('palette-input') as HTMLInputElement;
+  expect(input.value).toBe('>');
+  input.value = '>hello';
+  input.dispatchEvent(new Event('input'));
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('search_folder', { path: '/docs', query: 'hello', limit: 60 }));
+});

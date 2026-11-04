@@ -165,6 +165,25 @@ button:disabled:hover { background: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+summary.tree-dir {
+  list-style: none;
+  cursor: default;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+summary.tree-dir::-webkit-details-marker { display: none; }
+summary.tree-dir::before {
+  content: '▸';
+  display: inline-block;
+  width: 12px;
+}
+.tree-folder[open] > summary.tree-dir::before { content: '▾'; }
+summary.tree-dir:hover { background: var(--bg-inset); color: var(--text); }
+.tree-children {
+  margin-left: 13px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-soft);
+}
 
 #reader {
   position: relative;

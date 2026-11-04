@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `⇧⌘F` searches the contents of every file in the open folder.
+
+### Changed
+
+- The sidebar shows the folder as a collapsible tree instead of a flat list
+  grouped by directory. Folders holding the open file expand automatically.
+
 ## [1.1.0] - 2026-09-11
 
 ### Added

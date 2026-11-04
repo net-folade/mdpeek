@@ -1,6 +1,6 @@
-/* The file list. Deliberately flat-and-grouped rather than an expandable tree:
- * with ⌘K as the primary way to move around, collapsible folders would be extra
- * state and extra clicks for no real gain. */
+/* The file list. Folders are collapsible <details> elements, so open/closed
+ * state lives in the DOM and keyboard toggling comes for free. Filtering drops
+ * the tree for a flat, ranked list. */
 
 export interface TreeNode {
   name: string;
@@ -69,67 +69,112 @@ export function filterEntries(entries: FileEntry[], query: string): FileEntry[] 
     .map((r) => r.e);
 }
 
+/** Folders the user has expanded, kept across re-renders (e.g. clearing the filter). */
+const openDirs = new Set<string>();
+
+function emptyMessage(nav: HTMLElement): void {
+  const empty = document.createElement('div');
+  empty.className = 'tree-dir';
+  empty.textContent = 'no markdown files';
+  nav.appendChild(empty);
+}
+
+function fileButton(
+  name: string,
+  path: string,
+  activePath: string | null,
+  onPick: (path: string) => void,
+): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tree-item';
+  btn.title = path;
+
+  const label = document.createElement('span');
+  label.textContent = name.replace(/\.(md|markdown|mdx|mdown)$/i, '');
+  btn.appendChild(label);
+
+  if (path === activePath) btn.setAttribute('aria-current', 'true');
+  btn.addEventListener('click', () => onPick(path));
+  return btn;
+}
+
 /**
- * Render the list into `nav`.
- *
- * `grouped` must be false whenever the list has been filtered. Filtered results
- * come back in score order, not directory order, so the running "emit a heading
- * when the directory changes" logic would repeat headings and file items under
- * the wrong one. In that mode each row carries its own directory instead.
+ * Render the folder as a collapsible tree. Folders start closed unless the user
+ * opened them earlier or they contain the active file.
  */
 export function renderTree(
+  nav: HTMLElement,
+  root: TreeNode,
+  activePath: string | null,
+  onPick: (path: string) => void,
+): void {
+  nav.textContent = '';
+  if (root.children.length === 0) {
+    emptyMessage(nav);
+    return;
+  }
+
+  const build = (node: TreeNode, parent: Node): void => {
+    for (const child of node.children) {
+      if (!child.isDir) {
+        parent.appendChild(fileButton(child.name, child.path, activePath, onPick));
+        continue;
+      }
+      const details = document.createElement('details');
+      details.className = 'tree-folder';
+      details.open = openDirs.has(child.path) || Boolean(activePath?.startsWith(`${child.path}/`));
+      details.addEventListener('toggle', () => {
+        if (details.open) openDirs.add(child.path);
+        else openDirs.delete(child.path);
+      });
+
+      const summary = document.createElement('summary');
+      summary.className = 'tree-dir';
+      summary.textContent = child.name;
+      summary.title = child.path;
+      details.appendChild(summary);
+
+      const children = document.createElement('div');
+      children.className = 'tree-children';
+      build(child, children);
+      details.appendChild(children);
+      parent.appendChild(details);
+    }
+  };
+
+  const frag = document.createDocumentFragment();
+  build(root, frag);
+  nav.appendChild(frag);
+}
+
+/**
+ * Render filtered results as a flat list. They come back in score order, not
+ * directory order, so each row carries its own directory instead of a tree.
+ */
+export function renderResults(
   nav: HTMLElement,
   entries: FileEntry[],
   activePath: string | null,
   onPick: (path: string) => void,
-  grouped = true,
 ): void {
   nav.textContent = '';
-
   if (entries.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-dir';
-    empty.textContent = 'no markdown files';
-    nav.appendChild(empty);
+    emptyMessage(nav);
     return;
   }
 
   const frag = document.createDocumentFragment();
-  let lastDir: string | null = null;
-
   for (const entry of entries) {
-    if (grouped && entry.dir !== lastDir) {
-      lastDir = entry.dir;
-      if (entry.dir) {
-        const label = document.createElement('div');
-        label.className = 'tree-dir';
-        label.textContent = entry.dir;
-        label.title = entry.dir;
-        frag.appendChild(label);
-      }
-    }
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'tree-item';
-    btn.title = entry.path;
-
-    const name = document.createElement('span');
-    name.textContent = entry.name.replace(/\.(md|markdown|mdx|mdown)$/i, '');
-    btn.appendChild(name);
-
-    if (!grouped && entry.dir) {
+    const btn = fileButton(entry.name, entry.path, activePath, onPick);
+    if (entry.dir) {
       const where = document.createElement('span');
       where.className = 'tree-where';
       where.textContent = `  ${entry.dir}`;
       btn.appendChild(where);
     }
-
-    if (entry.path === activePath) btn.setAttribute('aria-current', 'true');
-    btn.addEventListener('click', () => onPick(entry.path));
     frag.appendChild(btn);
   }
-
   nav.appendChild(frag);
 }
 
@@ -138,6 +183,10 @@ export function markActive(nav: HTMLElement, activePath: string | null): void {
   for (const el of nav.querySelectorAll<HTMLElement>('.tree-item')) {
     if (el.title === activePath) {
       el.setAttribute('aria-current', 'true');
+      // Expand collapsed parent folders so the active file is visible.
+      for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) {
+        d.open = true;
+      }
       el.scrollIntoView({ block: 'nearest' });
     } else {
       el.removeAttribute('aria-current');
